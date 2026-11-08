@@ -456,11 +456,16 @@ const queryCostcoOrders = async (query, variablesOverride = {}) => {
   // string containing literal newlines. That is not valid JSON, so do not
   // pass the whole wrapper to JSON.parse(). Extract the GraphQL document and
   // parse only the variables object (which is valid JSON).
+
   const rawQuery = query.query;
-  const queryMarker = '\"query\":\"';
-  const variablesMarker = '\",\"variables\":';
+  const queryMarker = '"query":"';
+  const variablesMarker = '","variables":';
+
   const queryStart = rawQuery.indexOf(queryMarker);
-  const variablesStart = rawQuery.indexOf(variablesMarker, queryStart + queryMarker.length);
+  const variablesStart = rawQuery.indexOf(
+    variablesMarker,
+    queryStart + queryMarker.length
+  );
 
   if (queryStart < 0 || variablesStart < 0) {
     throw new Error(`Could not read the ${query.name} GraphQL query definition.`);
@@ -516,6 +521,7 @@ window.receiptsWithCounts = (overrides = {}) => queryCostcoOrders(Query.receipts
   documentSubType: COSTCO_EXPORT_CONFIG.documentSubType,
   ...overrides
 });
+
 window.getOnlineOrders = (overrides = {}) => queryCostcoOrders(Query.getOnlineOrders, {
   startDate: COSTCO_EXPORT_CONFIG.startDate,
   endDate: COSTCO_EXPORT_CONFIG.endDate,
@@ -524,6 +530,7 @@ window.getOnlineOrders = (overrides = {}) => queryCostcoOrders(Query.getOnlineOr
   pageSize: COSTCO_EXPORT_CONFIG.onlineOrderPageSize,
   ...overrides
 });
+
 window.getOrderDetails = (orderNumbers = []) => {
   if (!Array.isArray(orderNumbers)) orderNumbers = [orderNumbers];
   return queryCostcoOrders(Query.getOrderDetails, { orderNumbers });
@@ -553,26 +560,47 @@ const validateCostcoDateRange = (startDate, endDate) => {
 };
 
 const flattenObject = (value, prefix = "", output = {}) => {
-  if (value === null || value === undefined) { if (prefix) output[prefix] = ""; return output; }
-  if (Array.isArray(value)) { output[prefix] = JSON.stringify(value); return output; }
-  if (typeof value !== "object") { if (prefix) output[prefix] = value; return output; }
+  if (value === null || value === undefined) {
+    if (prefix) output[prefix] = "";
+    return output;
+  }
+  if (Array.isArray(value)) {
+    output[prefix] = JSON.stringify(value);
+    return output;
+  }
+  if (typeof value !== "object") {
+    if (prefix) output[prefix] = value;
+    return output;
+  }
   for (const [key, child] of Object.entries(value)) {
     const path = prefix ? `${prefix}.${key}` : key;
-    if (child && typeof child === "object" && !Array.isArray(child)) flattenObject(child, path, output);
-    else output[path] = Array.isArray(child) ? JSON.stringify(child) : (child ?? "");
+    if (child && typeof child === "object" && !Array.isArray(child)) {
+      flattenObject(child, path, output);
+    } else {
+      output[path] = Array.isArray(child) ? JSON.stringify(child) : (child ?? "");
+    }
   }
   return output;
 };
 
-const isSensitiveField = key => /^(membershipNumber|emailAddress|email|phoneNumber|phone|cardNumber|displayAccountNumber|accountNumber|approvalNumber|tenderAuthorizationCode|authorizationCode|transactionID|giftMessage|giftToFirstName|giftToLastName|giftFromName|firstName|lastName|line1|line2|line3|city|state|postalCode)$/i.test(String(key).split(".").pop());
+const isSensitiveField = key =>
+  /^(membershipNumber|emailAddress|email|phoneNumber|phone|cardNumber|displayAccountNumber|accountNumber|approvalNumber|tenderAuthorizationCode|authorizationCode|transactionID|giftMessage|giftToFirstName|giftToLastName|giftFromName|firstName|lastName|line1|line2|line3|city|state|postalCode)$/i
+    .test(String(key).split(".").pop());
+
 const exportSafeObject = object => {
   if (COSTCO_EXPORT_CONFIG.includeSensitiveFields) return object;
   const clean = {};
   for (const [key, value] of Object.entries(object || {})) {
     if (isSensitiveField(key)) continue;
-    if (Array.isArray(value)) clean[key] = value.map(v => v && typeof v === "object" ? exportSafeObject(v) : v);
-    else if (value && typeof value === "object") clean[key] = exportSafeObject(value);
-    else clean[key] = value;
+    if (Array.isArray(value)) {
+      clean[key] = value.map(v =>
+        v && typeof v === "object" ? exportSafeObject(v) : v
+      );
+    } else if (value && typeof value === "object") {
+      clean[key] = exportSafeObject(value);
+    } else {
+      clean[key] = value;
+    }
   }
   return clean;
 };
@@ -580,10 +608,16 @@ const exportSafeObject = object => {
 //////////////////////
 // AUTOMATIC PAGINATION
 //////////////////////
-const getAllOnlineOrders = async ({ startDate, endDate, pageSize = COSTCO_EXPORT_CONFIG.onlineOrderPageSize, warehouseNumber = COSTCO_EXPORT_CONFIG.warehouseNumber } = {}) => {
+const getAllOnlineOrders = async ({
+  startDate,
+  endDate,
+  pageSize = COSTCO_EXPORT_CONFIG.onlineOrderPageSize,
+  warehouseNumber = COSTCO_EXPORT_CONFIG.warehouseNumber
+} = {}) => {
   const allOrders = [];
   let pageNumber = 1;
   let expectedTotal = Infinity;
+
   while (allOrders.length < expectedTotal) {
     const page = await getOnlineOrders({
       startDate: costcoDateToApi(startDate ?? COSTCO_EXPORT_CONFIG.startDate),
@@ -592,14 +626,24 @@ const getAllOnlineOrders = async ({ startDate, endDate, pageSize = COSTCO_EXPORT
       pageNumber,
       pageSize
     });
+
     const batch = page?.bcOrders || [];
     allOrders.push(...batch);
+
     const reportedTotal = Number(page?.totalNumberOfRecords);
     if (Number.isFinite(reportedTotal)) expectedTotal = reportedTotal;
-    console.info(`Costco online orders: page ${pageNumber}, received ${batch.length}, total ${allOrders.length}${Number.isFinite(expectedTotal) ? `/${expectedTotal}` : ""}`);
-    if (!batch.length || batch.length < pageSize || allOrders.length >= expectedTotal) break;
+
+    console.info(
+      `Costco online orders: page ${pageNumber}, received ${batch.length}, total ${allOrders.length}` +
+      `${Number.isFinite(expectedTotal) ? `/${expectedTotal}` : ""}`
+    );
+
+    if (!batch.length || batch.length < pageSize || allOrders.length >= expectedTotal) {
+      break;
+    }
     pageNumber += 1;
   }
+
   return allOrders;
 };
 window.getAllOnlineOrders = getAllOnlineOrders;
@@ -608,71 +652,132 @@ window.getAllOnlineOrders = getAllOnlineOrders;
 // EXPORT HELPERS
 //////////////////////
 const csvEscape = value => {
-  let text = value === null || value === undefined ? "" : (typeof value === "object" ? JSON.stringify(value) : String(value));
+  let text = value === null || value === undefined
+    ? ""
+    : (typeof value === "object" ? JSON.stringify(value) : String(value));
+
   // Prevent spreadsheet formula execution when opening CSVs in Excel.
   if (/^[\s]*[=+@]/.test(text)) text = "'" + text;
-  return `"${text.replace(/"/g, '\"\"')}"`;
+
+  return `"${text.replace(/"/g, '""')}"`;
 };
 
 const rowsToCsv = rows => {
   const flattened = rows.map(row => flattenObject(exportSafeObject(row)));
   const headers = [...new Set(flattened.flatMap(row => Object.keys(row)))];
+
   if (!headers.length) return "";
-  return [headers.map(csvEscape).join(","), ...flattened.map(row => headers.map(h => csvEscape(row[h])).join(","))].join("\r\n");
+
+  return [
+    headers.map(csvEscape).join(","),
+    ...flattened.map(row => headers.map(h => csvEscape(row[h])).join(","))
+  ].join("\r\n");
 };
 
 const downloadTextFile = (filename, content, mimeType) => {
   const blob = new Blob(["\ufeff", content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
+
   link.href = url;
   link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
+
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 };
 
-const xmlEscape = value => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+const xmlEscape = value =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+
 const excelColumn = n => {
   let name = "";
-  while (n > 0) { const r = (n - 1) % 26; name = String.fromCharCode(65 + r) + name; n = Math.floor((n - 1) / 26); }
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    name = String.fromCharCode(65 + r) + name;
+    n = Math.floor((n - 1) / 26);
+  }
   return name;
 };
+
 const rowsToExcelXml = sheets => {
   const worksheetXml = Object.entries(sheets).map(([sheetName, rows]) => {
     const safeRows = rows.map(row => flattenObject(exportSafeObject(row)));
     const headers = [...new Set(safeRows.flatMap(row => Object.keys(row)))];
-    const matrix = headers.length ? [headers, ...safeRows.map(row => headers.map(h => row[h] ?? ""))] : [["No data"]];
-    const rowXml = matrix.map((cells, ri) => `<Row>${cells.map((value, ci) => {
-      const numeric = typeof value === "number" && Number.isFinite(value);
-      const type = numeric ? "Number" : "String";
-      const cell = numeric ? String(value) : xmlEscape(typeof value === "object" ? JSON.stringify(value) : value);
-      return `<Cell ss:Index="${ci + 1}"><Data ss:Type="${type}">${cell}</Data></Cell>`;
-    }).join("")}</Row>`).join("");
+    const matrix = headers.length
+      ? [headers, ...safeRows.map(row => headers.map(h => row[h] ?? ""))]
+      : [["No data"]];
+
+    const rowXml = matrix.map((cells, ri) =>
+      `<Row>${cells.map((value, ci) => {
+        const numeric = typeof value === "number" && Number.isFinite(value);
+        const type = numeric ? "Number" : "String";
+        const cell = numeric
+          ? String(value)
+          : xmlEscape(typeof value === "object" ? JSON.stringify(value) : value);
+
+        return `<Cell ss:Index="${ci + 1}"><Data ss:Type="${type}">${cell}</Data></Cell>`;
+      }).join("")}</Row>`
+    ).join("");
+
     return `<Worksheet ss:Name="${xmlEscape(sheetName.slice(0, 31))}"><Table>${rowXml}</Table></Worksheet>`;
   }).join("");
+
   return `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">${worksheetXml}</Workbook>`;
 };
 
-const exportCostcoData = ({ receipts = [], onlineOrders = [], orderDetails = [] } = {}) => {
-  const receiptItems = receipts.flatMap(receipt => (receipt.itemArray || []).map(item => ({
-    transactionDate: receipt.transactionDate,
-    transactionDateTime: receipt.transactionDateTime,
-    transactionNumber: receipt.transactionNumber,
-    warehouseName: receipt.warehouseName,
-    warehouseNumber: receipt.warehouseNumber,
-    receiptTotal: receipt.total,
-    ...item,
-    unit: item.fuelUomCode ? item.fuelUnitQuantity : item.unit
-  })));
-  const onlineOrderItems = onlineOrders.flatMap(order => (order.orderLineItems || []).map(item => ({
-    orderNumber: order.orderNumber,
-    orderPlacedDate: order.orderPlacedDate,
-    orderStatus: order.status,
-    orderTotal: order.orderTotal,
-    ...item
-  })));
+const exportCostcoData = ({
+  receipts = [],
+  onlineOrders = [],
+  orderDetails = []
+} = {}) => {
+
+  // One spreadsheet row per purchased item. Receipt-level details are repeated
+  // on each item row so every line remains traceable to its original receipt.
+  const receiptItems = receipts.flatMap(receipt =>
+    (receipt.itemArray || []).map(item => ({
+      transactionDate: receipt.transactionDate,
+      transactionDateTime: receipt.transactionDateTime,
+      transactionNumber: receipt.transactionNumber,
+      warehouseName: receipt.warehouseName,
+      warehouseNumber: receipt.warehouseNumber,
+      receiptType: receipt.receiptType,
+      documentType: receipt.documentType,
+      receiptSubtotal: receipt.subTotal,
+      receiptTaxes: receipt.taxes,
+      receiptTotal: receipt.total,
+
+      ...item,
+
+      itemNumber: item.itemNumber ?? "",
+      itemDescription: item.itemDescription01 ?? item.itemDescription ?? "",
+      price: item.itemUnitPriceAmount ?? item.unitPrice ?? "",
+      amount: item.amount ?? "",
+      unit: item.fuelUomCode
+        ? item.fuelUnitQuantity
+        : (item.unit ?? ""),
+      taxFlag: item.taxFlag ?? "",
+      fuelUnitQuantity: item.fuelUnitQuantity ?? "",
+      fuelUomCode: item.fuelUomCode ?? ""
+    }))
+  );
+
+  const onlineOrderItems = onlineOrders.flatMap(order =>
+    (order.orderLineItems || []).map(item => ({
+      orderNumber: order.orderNumber,
+      orderPlacedDate: order.orderPlacedDate,
+      orderStatus: order.status,
+      orderTotal: order.orderTotal,
+      ...item
+    }))
+  );
+
   const datasets = {
     receipts,
     receipt_items: receiptItems,
@@ -680,12 +785,24 @@ const exportCostcoData = ({ receipts = [], onlineOrders = [], orderDetails = [] 
     online_order_items: onlineOrderItems,
     order_details: orderDetails
   };
+
   const prefix = COSTCO_EXPORT_CONFIG.fileNamePrefix;
+
   for (const [name, rows] of Object.entries(datasets)) {
-    downloadTextFile(`${prefix}_${name}.csv`, rowsToCsv(rows), "text/csv;charset=utf-8");
+    downloadTextFile(
+      `${prefix}_${name}.csv`,
+      rowsToCsv(rows),
+      "text/csv;charset=utf-8"
+    );
   }
+
   // SpreadsheetML is a multi-worksheet Excel workbook format and requires no third-party library.
-  downloadTextFile(`${prefix}.xls`, rowsToExcelXml(datasets), "application/vnd.ms-excel;charset=utf-8");
+  downloadTextFile(
+    `${prefix}.xls`,
+    rowsToExcelXml(datasets),
+    "application/vnd.ms-excel;charset=utf-8"
+  );
+
   console.info("Exported CSV files and a multi-sheet Excel-compatible workbook.");
   return datasets;
 };
@@ -695,50 +812,103 @@ window.exportCostcoData = exportCostcoData;
 // MAIN DOWNLOAD
 //////////////////////
 const runCostcoExport = async (options = {}) => {
-  const startDate = costcoDateToApi(options.startDate ?? COSTCO_EXPORT_CONFIG.startDate);
-  const endDate = costcoDateToApi(options.endDate ?? COSTCO_EXPORT_CONFIG.endDate);
-  validateCostcoDateRange(startDate, endDate);
-  const pageSize = options.pageSize ?? COSTCO_EXPORT_CONFIG.onlineOrderPageSize;
-  const warehouseNumber = options.warehouseNumber ?? COSTCO_EXPORT_CONFIG.warehouseNumber;
+  const startDate = costcoDateToApi(
+    options.startDate ?? COSTCO_EXPORT_CONFIG.startDate
+  );
+  const endDate = costcoDateToApi(
+    options.endDate ?? COSTCO_EXPORT_CONFIG.endDate
+  );
 
-  console.info(`Retrieving Costco purchase history from ${startDate} through ${endDate}...`);
+  validateCostcoDateRange(startDate, endDate);
+
+  const pageSize = options.pageSize ?? COSTCO_EXPORT_CONFIG.onlineOrderPageSize;
+  const warehouseNumber =
+    options.warehouseNumber ?? COSTCO_EXPORT_CONFIG.warehouseNumber;
+
+  console.info(
+    `Retrieving Costco purchase history from ${startDate} through ${endDate}...`
+  );
+
   const receiptResponse = await receiptsWithCounts({ startDate, endDate });
   const receipts = receiptResponse?.receipts || [];
-  const onlineOrders = await getAllOnlineOrders({ startDate, endDate, pageSize, warehouseNumber });
+
+  const onlineOrders = await getAllOnlineOrders({
+    startDate,
+    endDate,
+    pageSize,
+    warehouseNumber
+  });
 
   let orderDetails = [];
+
   if (options.includeOrderDetails ?? COSTCO_EXPORT_CONFIG.includeOrderDetails) {
-    const orderNumbers = onlineOrders.map(order => order.orderNumber).filter(Boolean);
+    const orderNumbers = onlineOrders
+      .map(order => order.orderNumber)
+      .filter(Boolean);
+
     // Keep request batches modest; the API accepts an array of order numbers.
     for (let i = 0; i < orderNumbers.length; i += 20) {
-      const detailResponse = await getOrderDetails(orderNumbers.slice(i, i + 20));
-      orderDetails.push(...(Array.isArray(detailResponse) ? detailResponse : detailResponse ? [detailResponse] : []));
+      const detailResponse = await getOrderDetails(
+        orderNumbers.slice(i, i + 20)
+      );
+
+      orderDetails.push(
+        ...(Array.isArray(detailResponse)
+          ? detailResponse
+          : detailResponse
+            ? [detailResponse]
+            : [])
+      );
     }
   }
 
-  const items = receipts.flatMap(receipt => (receipt.itemArray || []).map(({ fuelUnitQuantity, unit, ...item }) => ({
-    ...item,
-    unit: item.fuelUomCode ? fuelUnitQuantity : unit
-  })));
+  const items = receipts.flatMap(receipt =>
+    (receipt.itemArray || []).map(({ fuelUnitQuantity, unit, ...item }) => ({
+      ...item,
+      unit: item.fuelUomCode ? fuelUnitQuantity : unit
+    }))
+  );
+
   window.costcoReceipts = receipts;
   window.costcoReceiptItems = items;
   window.costcoOnlineOrders = onlineOrders;
   window.costcoOrderDetails = orderDetails;
 
-  const receiptTotal = receipts.reduce((sum, receipt) => sum + (Number(receipt.total) || 0), 0);
-  console.info(`Loaded ${receipts.length} warehouse receipts, ${items.length} receipt items, and ${onlineOrders.length} online orders.`);
+  const receiptTotal = receipts.reduce(
+    (sum, receipt) => sum + (Number(receipt.total) || 0),
+    0
+  );
+
+  console.info(
+    `Loaded ${receipts.length} warehouse receipts, ${items.length} receipt items, and ${onlineOrders.length} online orders.`
+  );
   console.info(`Warehouse receipt total: ${receiptTotal.toFixed(2)}`);
-  if (COSTCO_EXPORT_CONFIG.exportAfterDownload) exportCostcoData({ receipts, onlineOrders, orderDetails });
+
+  if (COSTCO_EXPORT_CONFIG.exportAfterDownload) {
+    exportCostcoData({ receipts, onlineOrders, orderDetails });
+  }
+
   return { receipts, items, onlineOrders, orderDetails, receiptTotal };
 };
+
 window.runCostcoExport = runCostcoExport;
 
 // Backward-compatible helpers from the original script.
-window.logReceiptItems = () => console.table(window.costcoReceiptItems || []);
-window.getReceiptsTotal = () => (window.costcoReceipts || []).reduce((sum, receipt) => sum + (Number(receipt.total) || 0), 0);
+window.logReceiptItems = () =>
+  console.table(window.costcoReceiptItems || []);
 
-console.log("Costco export functions ready: runCostcoExport(), receiptsWithCounts(), getOnlineOrders(), getAllOnlineOrders(), getOrderDetails(), exportCostcoData(), logReceiptItems(), getReceiptsTotal().");
-console.log("Edit COSTCO_EXPORT_CONFIG at the top, then run: await runCostcoExport().");
+window.getReceiptsTotal = () =>
+  (window.costcoReceipts || []).reduce(
+    (sum, receipt) => sum + (Number(receipt.total) || 0),
+    0
+  );
+
+console.log(
+  "Costco export functions ready: runCostcoExport(), receiptsWithCounts(), getOnlineOrders(), getAllOnlineOrders(), getOrderDetails(), exportCostcoData(), logReceiptItems(), getReceiptsTotal()."
+);
+console.log(
+  "Edit COSTCO_EXPORT_CONFIG at the top, then run: await runCostcoExport()."
+);
 
 // Automatically start, matching the original script's run-on-paste behavior.
 // Set exportAfterDownload=false to load data without downloading files.
